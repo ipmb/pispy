@@ -4,8 +4,9 @@
 <link rel="stylesheet" type="text/css" href="/static/bootstrap/css/bootstrap.css">
 </head>
 <body>
-  Connected clients = <span id="connected">1</span>
-  <div id="chartContainer" style="height: 300px; width: 100%;">
+  <div id="http-ping-time" style="height: 300px; width: 100%;"></div>
+  <div id="cpu-temp" style="height: 300px; width: 100%;"></div>
+  <div id="connected-clients" style="height: 300px; width: 100%;"></div>
   <script src="//cdnjs.cloudflare.com/ajax/libs/jquery/1.11.0/jquery.min.js
 
 "></script>
@@ -22,11 +23,35 @@
         password: "{{ db['password'] }}",
         database: "{{ db['name'] }}"
     });
-    var chart;
-    var graphPoints;
-    influxdb.query('SELECT * FROM http_ping_time limit 500', function (data) {
-        chart = graph(data);
-        chart.render();
+    var series = {
+      http_ping_time: {
+        query: 'SELECT * FROM http_ping_time limit 500',
+        chartOptions: {
+          title: "HTTP Repsonse Times",
+          container: 'http-ping-time'
+        }
+      },
+      connected_clients: {
+        query: 'SELECT * FROM connected_clients limit 500',
+        chartOptions: {
+          title: "Connected clients",
+          container: 'connected-clients'
+        }
+      },
+      cpu_temp: {
+        query: 'SELECT * FROM cpu_temp limit 500',
+        chartOptions: {
+          title: "CPU Temperature",
+          container: 'cpu-temp'
+        }
+      }
+    };
+    // Initial data fetch and render
+    _.each(series, function (srs, name) {
+      influxdb.query(srs.query, function (data) {
+        srs.chart = graph(data, srs.chartOptions);
+        srs.chart.render();
+      })
     });
 
     function parseData (payload) {
@@ -49,19 +74,19 @@
 
         conn.onmessage = function(e) {
           var data = parseData(e.data);
-          if (data.name === 'connected_clients') {
-            $('#connected').text(data.point.count)
-          }
-          if (data.name === 'http_ping_time' && graphPoints) {
+          if (series[data.name]) {
+            var graphPoints = series[data.name].chart.options.data;
             for (var i=0; i<graphPoints.length; i++) {
               if (!_.isUndefined(data.point[graphPoints[i].name])) {
-                graphPoints[i].dataPoints.push({x: new Date(data.point.time), y: data.point[graphPoints[i].name]});
+                graphPoints[i].dataPoints.push({
+                  x: new Date(data.point.time),
+                  y: data.point[graphPoints[i].name]
+                });
               }
               graphPoints[i].dataPoints.shift();
             }
-            chart.render();
+            series[data.name].chart.render();
           }
-
         };
 
         conn.onclose = function() {
@@ -72,11 +97,11 @@
     var reconnect = _.throttle(connect, 500);
     connect();
 
-    function graph (data) {
+    function graph (data, options) {
       data.reverse();
       var keys = _.without(_.keys(data[0]), 'time', 'sequence_number')
       graphPoints = _.map(keys, function (key) {
-        return {name: key, showInLegend: true, legentText: key, type: "line", dataPoints: [] };
+        return {name: key, showInLegend: true, legendText: key, type: "line", dataPoints: [] };
       });
       for (var i = 0; i < data.length; i++) {
         for (var j = 0; j < keys.length; j++) {
@@ -84,18 +109,17 @@
           if (!_.isUndefined(data[i][key])) {
             graphPoints[j].dataPoints.push({x: data[i].time, y: data[i][key]});
           }
+        }
       }
-
+      var chart = new CanvasJS.Chart(options.container,
+      {
+        title:{
+          text: options.title
+        },
+        data: graphPoints
+      });
+      return chart;
     }
-    var chart = new CanvasJS.Chart("chartContainer",
-    {
-      title:{
-      text: "HTTP Repsonse Times"
-      },
-      data: graphPoints
-    });
-    return chart;
-  }
 </script>
 </body>
 </html>
