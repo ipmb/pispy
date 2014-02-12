@@ -18,9 +18,9 @@ def ping_url(name, url):
     print(name, response_time)
     return response_time
 
-def send_to_proxy(names, values):
+def send_to_proxy(series, names, values):
     payload = [{
-        'name': 'http_ping_time',
+        'name': series,
         'columns': names,
         'points': [values],
     }]
@@ -29,13 +29,28 @@ def send_to_proxy(names, values):
     resp = requests.post(proxy_url, data=json.dumps(payload))
     print("InfluxDB Response: {}".format(resp.status_code))
 
+def check_temp():
+    try:
+        with open('/sys/class/thermal/thermal_zone0/temp') as temp_file:
+            temp = temp_file.read()
+            try:
+                return int(temp) / 1000
+            except ValueError:
+                pass
+    except FileNotFoundError:
+        pass
+    return None
+
 
 if __name__ == '__main__':
     while True:
         response_times = []
         for name, url in URLS.items():
             response_times.append(ping_url(name, url))
-        send_to_proxy(list(URLS.keys()), response_times)
+        send_to_proxy('http_ping_time', list(URLS.keys()), response_times)
+        temp = check_temp()
+        if temp is not None:
+            send_to_proxy('cpu_temp', ['value'], [temp])
         time.sleep(1)
 
 
