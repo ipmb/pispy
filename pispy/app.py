@@ -35,8 +35,8 @@ class InfluxProxyHandler(tornado.web.RequestHandler):
         valid_user = user == settings['influxdb']['user']
         valid_password = password == settings['influxdb']['password']
         if not (valid_user and valid_password):
-            self.set_status(401)
-            self.finish()
+            return False
+        return True
 
     @gen.coroutine
     def post(self):
@@ -46,7 +46,10 @@ class InfluxProxyHandler(tornado.web.RequestHandler):
         3. Pushes into realtime queue
         4. Proxies to InfluxDB
         """
-        self.check_auth()
+        if not self.check_auth():
+            self.set_status(401)
+            self.finish()
+            return
         body = self.request.body.decode('utf8')
         try:
             payload = json.loads(body)
@@ -54,6 +57,7 @@ class InfluxProxyHandler(tornado.web.RequestHandler):
         except (ValueError, KeyError):
             self.set_status(400, "Invalid payload format.")
             self.finish()
+            return
         QUEUE.put(payload)
         try:
             influx_resp = yield post_to_influx(payload)
